@@ -1,0 +1,43 @@
+# PlainBench Configuration Example
+# Copy this file to 'plainbench.yaml' and customize for your project
+# https://github.com/yourusername/plainbench
+
+# General settings
+general:
+  project_name: "My Project"
+  default_isolation: moderate
+  default_metrics:
+    - wall_time
+    - cpu_time
+    - python_memory
+
+# Benchmark execution
+execution:
+  warmup_runs: 3
+  measurement_runs: 10
+  disable_gc: true
+  timeout: 300
+
+# Isolation configuration
+isolation:
+  moderate:
+    cpu_affinity: [0, 1, 2, 3]
+    set_pythonhashseed: true
+    pythonhashseed_value: 0
+
+# Storage
+storage:
+  backend: sqlite
+  database_path: "./benchmarks.db"
+
+# Git integration
+git:
+  enabled: true
+  require_clean: false
+
+# Output
+output:
+  verbosity: normal
+  show_progress: true
+  use_color: true
+  format: table
