@@ -1,0 +1,243 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plainbench"
+version = "0.1.0"
+description = "A Python benchmarking framework with decorator support, shell command benchmarking, and SQLite-backed storage"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "PlainBench Contributors", email = "plainbench@example.com"}
+]
+maintainers = [
+    {name = "PlainBench Contributors", email = "plainbench@example.com"}
+]
+keywords = [
+    "benchmark",
+    "benchmarking",
+    "performance",
+    "profiling",
+    "metrics",
+    "testing",
+    "sqlite",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Testing",
+    "Topic :: System :: Benchmark",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+# Core dependencies based on research findings
+dependencies = [
+    # Core timing and profiling (built-in, but listed for documentation)
+    # - time (built-in)
+    # - tracemalloc (built-in, Python 3.4+)
+    # - resource (built-in, Unix only)
+
+    # Process and system metrics
+    "psutil>=5.9.0",  # Process monitoring, CPU, memory, I/O metrics
+
+    # CLI interface
+    "click>=8.0.0",  # Command-line interface framework
+
+    # Configuration
+    "pyyaml>=6.0",  # YAML configuration files
+    "toml>=0.10.2; python_version<'3.11'",  # TOML support for Python <3.11
+
+    # Statistical analysis (optional but recommended)
+    "scipy>=1.7.0; python_version>='3.8'",  # Statistical tests (t-test, etc.)
+
+    # Data validation
+    "pydantic>=2.0.0",  # Configuration validation
+
+    # Pretty terminal output
+    "rich>=13.0.0",  # Rich text and beautiful formatting
+]
+
+[project.optional-dependencies]
+# Development dependencies
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-timeout>=2.1.0",
+    "pytest-mock>=3.10.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+    "pre-commit>=3.0.0",
+]
+
+# Documentation dependencies
+docs = [
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.0.0",
+    "mkdocstrings[python]>=0.22.0",
+]
+
+# Testing utilities
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-timeout>=2.1.0",
+    "pytest-mock>=3.10.0",
+    "hypothesis>=6.0.0",  # Property-based testing
+]
+
+# All optional dependencies
+all = [
+    "plainbench[dev,docs,test]",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/plainbench"
+Documentation = "https://plainbench.readthedocs.io"
+Repository = "https://github.com/yourusername/plainbench"
+"Bug Tracker" = "https://github.com/yourusername/plainbench/issues"
+Changelog = "https://github.com/yourusername/plainbench/blob/main/CHANGELOG.md"
+
+[project.scripts]
+plainbench = "plainbench.cli.main:cli"
+
+[tool.setuptools]
+packages = ["plainbench"]
+
+[tool.setuptools.package-data]
+plainbench = ["py.typed"]
+
+# Black configuration
+[tool.black]
+line-length = 100
+target-version = ["py38", "py39", "py310", "py311", "py312"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+# Ruff configuration (linter and formatter)
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "ARG", # flake8-unused-arguments
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # Unused imports in __init__.py
+
+[tool.ruff.lint.isort]
+known-first-party = ["plainbench"]
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false  # Start lenient, tighten later
+disallow_any_generics = false
+disallow_subclassing_any = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+check_untyped_defs = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "psutil.*",
+    "scipy.*",
+]
+ignore_missing_imports = true
+
+# Pytest configuration
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+    "--cov=plainbench",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+    "benchmark: marks tests as benchmarks",
+    "requires_docker: marks tests that require Docker",
+    "requires_linux: marks tests that require Linux",
+]
+timeout = 300  # 5 minutes default timeout
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["plainbench"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/__pycache__/*",
+    "*/site-packages/*",
+]
+
+[tool.coverage.report]
+precision = 2
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
