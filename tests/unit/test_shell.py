@@ -13,6 +13,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock, call
 import subprocess
 import psutil
+import sys
 
 
 class TestShellBenchmarkBasic:
