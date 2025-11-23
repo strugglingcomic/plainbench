@@ -3,7 +3,7 @@
 import gc
 import os
 import warnings
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 try:
     import psutil

@@ -1,11 +1,10 @@
 """Mock Kafka implementation using SQLite."""
 
 import json
-import sqlite3
 import time
 from concurrent.futures import Future
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from plainbench.mocks.base import LatencyConfig, MockDataStore
 

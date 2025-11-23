@@ -1,9 +1,7 @@
 """Mock Postgres implementation using SQLite."""
 
 import re
-import sqlite3
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from plainbench.mocks.base import LatencyConfig, MockDataStore
 

@@ -3,7 +3,7 @@ Data structures for shell command benchmark results.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 
 @dataclass

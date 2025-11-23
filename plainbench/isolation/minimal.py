@@ -1,6 +1,7 @@
 """Minimal isolation strategy - basic GC control only."""
 
-from typing import Dict, Any
+from typing import Any, Dict
+
 from .base import IsolationStrategy
 
 

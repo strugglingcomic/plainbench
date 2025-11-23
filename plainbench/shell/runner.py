@@ -2,14 +2,15 @@
 Shell command benchmarking with process monitoring.
 """
 
+import statistics
 import subprocess
 import time
-import statistics
-from typing import Optional, List, Dict, Any, Union
+from typing import Any, Dict, List, Optional, Union
+
 import psutil
 
 from .monitor import ProcessMonitor
-from .results import ShellCommandResult, ShellBenchmarkResult
+from .results import ShellBenchmarkResult, ShellCommandResult
 
 
 class ShellCommandRunner:
