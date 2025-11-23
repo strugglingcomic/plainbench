@@ -7,6 +7,14 @@ Provides black-box benchmarking of shell commands with:
 - Both snapshot and continuous monitoring modes
 """
 
-from plainbench.shell.runner import benchmark_shell, ShellBenchmarkResult
+from .runner import benchmark_shell, ShellCommandRunner
+from .results import ShellBenchmarkResult, ShellCommandResult
+from .monitor import ProcessMonitor
 
-__all__ = ['benchmark_shell', 'ShellBenchmarkResult']
+__all__ = [
+    'benchmark_shell',
+    'ShellCommandRunner',
+    'ShellBenchmarkResult',
+    'ShellCommandResult',
+    'ProcessMonitor',
+]

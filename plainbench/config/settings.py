@@ -110,6 +110,50 @@ if BaseModel:
 
             return config
 
+    class MockConfig(BaseModel):
+        """Base configuration for mock data stores."""
+
+        enabled: bool = Field(default=True, description="Enable mock data store")
+        database: str = Field(
+            default=":memory:", description="SQLite database path for mock"
+        )
+        shared_database: bool = Field(
+            default=False,
+            description="Share database across test runs (persistence)",
+        )
+
+    class PostgresMockConfig(MockConfig):
+        """Configuration for mock Postgres."""
+
+        sql_dialect_translation: bool = Field(
+            default=True, description="Translate Postgres SQL to SQLite"
+        )
+        autocommit: bool = Field(default=False, description="Enable autocommit mode")
+
+    class KafkaMockConfig(MockConfig):
+        """Configuration for mock Kafka."""
+
+        default_partitions: int = Field(
+            default=1, description="Default number of partitions per topic", gt=0
+        )
+        enable_transactions: bool = Field(
+            default=False, description="Enable Kafka transactions (not yet implemented)"
+        )
+        auto_offset_reset: str = Field(
+            default="earliest",
+            description="Where to start consuming ('earliest' or 'latest')",
+        )
+
+    class RedisMockConfig(MockConfig):
+        """Configuration for mock Redis."""
+
+        enable_ttl: bool = Field(
+            default=True, description="Enable TTL/expiration support"
+        )
+        decode_responses: bool = Field(
+            default=False, description="Decode byte responses to strings"
+        )
+
 else:
     # Fallback dataclass implementation
     from dataclasses import dataclass
@@ -145,3 +189,33 @@ else:
                 default_isolation=os.environ.get("PLAINBENCH_ISOLATION", "minimal"),
                 database_path=os.environ.get("PLAINBENCH_DATABASE", "./benchmarks.db"),
             )
+
+    @dataclass
+    class MockConfig:
+        """Base configuration for mock data stores."""
+
+        enabled: bool = True
+        database: str = ":memory:"
+        shared_database: bool = False
+
+    @dataclass
+    class PostgresMockConfig(MockConfig):
+        """Configuration for mock Postgres."""
+
+        sql_dialect_translation: bool = True
+        autocommit: bool = False
+
+    @dataclass
+    class KafkaMockConfig(MockConfig):
+        """Configuration for mock Kafka."""
+
+        default_partitions: int = 1
+        enable_transactions: bool = False
+        auto_offset_reset: str = "earliest"
+
+    @dataclass
+    class RedisMockConfig(MockConfig):
+        """Configuration for mock Redis."""
+
+        enable_ttl: bool = True
+        decode_responses: bool = False

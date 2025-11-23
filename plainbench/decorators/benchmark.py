@@ -2,9 +2,11 @@
 
 import functools
 import gc
+import inspect
 from typing import Any, Callable, List, Optional
 
 from ..config.settings import BenchmarkConfig
+from ..isolation.factory import create_isolation_strategy
 from ..metrics.registry import get_metric_registry
 from ..storage.database import BenchmarkDatabase
 
@@ -49,92 +51,209 @@ def benchmark(
         else:
             metric_names = metrics
 
-        @functools.wraps(func)
-        def wrapper(*args, **func_kwargs) -> Any:
-            # Validate parameters
-            if warmup < 0:
-                raise ValueError(f"warmup must be >= 0, got {warmup}")
-            if runs <= 0:
-                raise ValueError(f"runs must be > 0, got {runs}")
+        # Check if function is async
+        is_async = inspect.iscoroutinefunction(func)
 
-            # Create metric collectors
-            registry = get_metric_registry()
-            collectors = registry.create_collectors(metric_names)
+        if is_async:
+            # Async wrapper
+            @functools.wraps(func)
+            async def async_wrapper(*args, **func_kwargs) -> Any:
+                # Validate parameters
+                if warmup < 0:
+                    raise ValueError(f"warmup must be >= 0, got {warmup}")
+                if runs <= 0:
+                    raise ValueError(f"runs must be > 0, got {runs}")
 
-            # Setup collectors
-            for collector in collectors:
-                collector.setup()
+                # Create isolation strategy
+                isolation_strategy = create_isolation_strategy(isolation)
 
-            try:
-                # Warmup phase
-                for _ in range(warmup):
-                    func(*args, **func_kwargs)
+                # Create metric collectors
+                registry = get_metric_registry()
+                collectors = registry.create_collectors(metric_names)
 
-                # Measurement phase
-                measurements = []
+                # Setup isolation
+                isolation_strategy.setup()
 
-                for iteration in range(runs):
-                    # Disable GC if requested
-                    if disable_gc:
-                        gc.collect()
-                        gc.disable()
+                try:
+                    # Setup collectors
+                    for collector in collectors:
+                        collector.setup()
 
                     try:
-                        # Start metrics
-                        for collector in collectors:
-                            collector.start()
+                        # Warmup phase
+                        for _ in range(warmup):
+                            await func(*args, **func_kwargs)
 
-                        # Execute function
-                        result = func(*args, **func_kwargs)
+                        # Measurement phase
+                        measurements = []
 
-                        # Stop metrics
-                        metric_results = {}
-                        for collector in collectors:
-                            metric_result = collector.stop()
-                            metric_results[metric_result.name] = metric_result
+                        for iteration in range(runs):
+                            # Disable GC if requested
+                            if disable_gc:
+                                gc.collect()
+                                gc.disable()
 
-                        measurements.append(metric_results)
+                            try:
+                                # Start metrics
+                                for collector in collectors:
+                                    collector.start()
+
+                                # Execute function
+                                result = await func(*args, **func_kwargs)
+
+                                # Stop metrics
+                                metric_results = {}
+                                for collector in collectors:
+                                    metric_result = collector.stop()
+                                    metric_results[metric_result.name] = metric_result
+
+                                measurements.append(metric_results)
+
+                            finally:
+                                if disable_gc:
+                                    gc.enable()
+
+                        # Store results if requested
+                        if store:
+                            db_path = database or BenchmarkConfig.get_default_database()
+                            db = BenchmarkDatabase(db_path)
+                            db.initialize()
+                            try:
+                                db.store_benchmark_results(
+                                    benchmark_name=benchmark_name,
+                                    measurements=measurements,
+                                    metadata={
+                                        "warmup": str(warmup),
+                                        "runs": str(runs),
+                                        "isolation": isolation,
+                                        "disable_gc": str(disable_gc),
+                                    },
+                                )
+                            finally:
+                                db.close()
+
+                        return result
 
                     finally:
-                        if disable_gc:
-                            gc.enable()
+                        # Cleanup collectors
+                        for collector in collectors:
+                            collector.cleanup()
 
-                # Store results if requested
-                if store:
-                    db_path = database or BenchmarkConfig.get_default_database()
-                    db = BenchmarkDatabase(db_path)
-                    db.initialize()
+                finally:
+                    # Teardown isolation
+                    isolation_strategy.teardown()
+
+            # Attach metadata for introspection
+            async_wrapper._is_benchmark = True
+            async_wrapper._benchmark_name = benchmark_name
+            async_wrapper._benchmark_config = {
+                "warmup": warmup,
+                "runs": runs,
+                "metrics": metric_names,
+                "isolation": isolation,
+            }
+
+            return async_wrapper
+
+        else:
+            # Sync wrapper
+            @functools.wraps(func)
+            def wrapper(*args, **func_kwargs) -> Any:
+                # Validate parameters
+                if warmup < 0:
+                    raise ValueError(f"warmup must be >= 0, got {warmup}")
+                if runs <= 0:
+                    raise ValueError(f"runs must be > 0, got {runs}")
+
+                # Create isolation strategy
+                isolation_strategy = create_isolation_strategy(isolation)
+
+                # Create metric collectors
+                registry = get_metric_registry()
+                collectors = registry.create_collectors(metric_names)
+
+                # Setup isolation
+                isolation_strategy.setup()
+
+                try:
+                    # Setup collectors
+                    for collector in collectors:
+                        collector.setup()
+
                     try:
-                        db.store_benchmark_results(
-                            benchmark_name=benchmark_name,
-                            measurements=measurements,
-                            metadata={
-                                "warmup": str(warmup),
-                                "runs": str(runs),
-                                "isolation": isolation,
-                                "disable_gc": str(disable_gc),
-                            },
-                        )
+                        # Warmup phase
+                        for _ in range(warmup):
+                            func(*args, **func_kwargs)
+
+                        # Measurement phase
+                        measurements = []
+
+                        for iteration in range(runs):
+                            # Disable GC if requested
+                            if disable_gc:
+                                gc.collect()
+                                gc.disable()
+
+                            try:
+                                # Start metrics
+                                for collector in collectors:
+                                    collector.start()
+
+                                # Execute function
+                                result = func(*args, **func_kwargs)
+
+                                # Stop metrics
+                                metric_results = {}
+                                for collector in collectors:
+                                    metric_result = collector.stop()
+                                    metric_results[metric_result.name] = metric_result
+
+                                measurements.append(metric_results)
+
+                            finally:
+                                if disable_gc:
+                                    gc.enable()
+
+                        # Store results if requested
+                        if store:
+                            db_path = database or BenchmarkConfig.get_default_database()
+                            db = BenchmarkDatabase(db_path)
+                            db.initialize()
+                            try:
+                                db.store_benchmark_results(
+                                    benchmark_name=benchmark_name,
+                                    measurements=measurements,
+                                    metadata={
+                                        "warmup": str(warmup),
+                                        "runs": str(runs),
+                                        "isolation": isolation,
+                                        "disable_gc": str(disable_gc),
+                                    },
+                                )
+                            finally:
+                                db.close()
+
+                        return result
+
                     finally:
-                        db.close()
+                        # Cleanup collectors
+                        for collector in collectors:
+                            collector.cleanup()
 
-                return result
+                finally:
+                    # Teardown isolation
+                    isolation_strategy.teardown()
 
-            finally:
-                # Cleanup collectors
-                for collector in collectors:
-                    collector.cleanup()
+            # Attach metadata for introspection
+            wrapper._is_benchmark = True
+            wrapper._benchmark_name = benchmark_name
+            wrapper._benchmark_config = {
+                "warmup": warmup,
+                "runs": runs,
+                "metrics": metric_names,
+                "isolation": isolation,
+            }
 
-        # Attach metadata for introspection
-        wrapper._is_benchmark = True
-        wrapper._benchmark_name = benchmark_name
-        wrapper._benchmark_config = {
-            "warmup": warmup,
-            "runs": runs,
-            "metrics": metric_names,
-            "isolation": isolation,
-        }
-
-        return wrapper
+            return wrapper
 
     return decorator

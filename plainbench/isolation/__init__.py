@@ -8,5 +8,6 @@ Provides three levels of isolation:
 """
 
 from plainbench.isolation.base import IsolationStrategy
+from plainbench.isolation.factory import create_isolation_strategy, get_available_strategies
 
-__all__ = ['IsolationStrategy']
+__all__ = ['IsolationStrategy', 'create_isolation_strategy', 'get_available_strategies']
