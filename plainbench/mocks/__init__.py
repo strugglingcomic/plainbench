@@ -25,8 +25,8 @@ from plainbench.mocks.decorators import (
     use_mock_postgres,
     use_mock_redis,
 )
-from plainbench.mocks.kafka import MockKafka, MockKafkaConsumer, MockKafkaProducer
-from plainbench.mocks.postgres import MockPostgres, MockPostgresConnection, MockPostgresCursor
+from plainbench.mocks.kafka import MockKafkaConsumer, MockKafkaProducer
+from plainbench.mocks.postgres import MockPostgresConnection, MockPostgresCursor
 from plainbench.mocks.redis import MockRedis
 
 __all__ = [
@@ -39,10 +39,8 @@ __all__ = [
     "use_mock_redis",
     "use_mock_datastore",
     # Direct classes
-    "MockPostgres",
     "MockPostgresConnection",
     "MockPostgresCursor",
-    "MockKafka",
     "MockKafkaProducer",
     "MockKafkaConsumer",
     "MockRedis",
