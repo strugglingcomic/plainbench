@@ -7,7 +7,23 @@ from concurrent.futures import Future
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from plainbench.mocks.base import MockDataStore
+from plainbench.mocks.base import LatencyConfig, MockDataStore
+
+# Default latencies for Kafka operations (in seconds)
+# Based on research of well-tuned Kafka clusters in same-datacenter environments.
+#
+# Research sources indicate:
+# - Low-latency configs: <1-2ms for producer send
+# - Balanced throughput/latency: 2-50ms end-to-end
+# - P99 latencies: 50-200ms in cloud environments
+# - Consumer lag typically a few milliseconds in healthy clusters
+DEFAULT_KAFKA_LATENCIES = {
+    "producer_send_single": 0.005,  # 5ms - single message send
+    "producer_send_batch": 0.015,  # 15ms - batch of messages
+    "producer_flush": 0.010,  # 10ms - flush pending messages
+    "consumer_poll": 0.002,  # 2ms - poll for messages
+    "consumer_commit": 0.005,  # 5ms - commit offsets
+}
 
 
 class MockKafkaProducer(MockDataStore):
@@ -28,6 +44,7 @@ class MockKafkaProducer(MockDataStore):
         self,
         database: str = ":memory:",
         bootstrap_servers: Optional[List[str]] = None,
+        latency_config: Optional[LatencyConfig] = None,
         **config,
     ):
         """
@@ -36,9 +53,10 @@ class MockKafkaProducer(MockDataStore):
         Args:
             database: SQLite database path (default: in-memory)
             bootstrap_servers: Bootstrap servers (for API compatibility)
+            latency_config: Configuration for latency simulation
             **config: Additional configuration (for API compatibility)
         """
-        super().__init__(database, **config)
+        super().__init__(database, latency_config=latency_config, **config)
         self.bootstrap_servers = bootstrap_servers or ["localhost:9092"]
         self._closed = False
         # Connect and initialize schema immediately
@@ -171,6 +189,9 @@ class MockKafkaProducer(MockDataStore):
         if self._closed:
             raise ValueError("Producer is closed")
 
+        # Simulate producer send latency
+        self.latency_config.simulate("producer_send_single")
+
         # Default partition
         if partition is None:
             partition = 0
@@ -222,6 +243,9 @@ class MockKafkaProducer(MockDataStore):
         Args:
             timeout: Timeout in seconds (not used in mock)
         """
+        # Simulate flush latency
+        self.latency_config.simulate("producer_flush")
+
         # Commit any pending transactions
         conn = self.connect()
         conn.commit()
@@ -262,6 +286,7 @@ class MockKafkaConsumer(MockDataStore):
         group_id: Optional[str] = None,
         auto_offset_reset: str = "earliest",
         enable_auto_commit: bool = True,
+        latency_config: Optional[LatencyConfig] = None,
         **config,
     ):
         """
@@ -274,9 +299,10 @@ class MockKafkaConsumer(MockDataStore):
             group_id: Consumer group ID
             auto_offset_reset: Where to start consuming ('earliest' or 'latest')
             enable_auto_commit: Enable automatic offset commits
+            latency_config: Configuration for latency simulation
             **config: Additional configuration
         """
-        super().__init__(database, **config)
+        super().__init__(database, latency_config=latency_config, **config)
         self.topics = list(topics)
         self.bootstrap_servers = bootstrap_servers or ["localhost:9092"]
         self.group_id = group_id or "default-group"
@@ -450,6 +476,9 @@ class MockKafkaConsumer(MockDataStore):
         if self._closed:
             raise ValueError("Consumer is closed")
 
+        # Simulate consumer poll latency
+        self.latency_config.simulate("consumer_poll")
+
         result = {}
 
         for topic in self.topics:
@@ -500,6 +529,9 @@ class MockKafkaConsumer(MockDataStore):
         """
         if self._closed:
             raise ValueError("Consumer is closed")
+
+        # Simulate consumer commit latency
+        self.latency_config.simulate("consumer_commit")
 
         if offsets is None:
             # Commit all current offsets

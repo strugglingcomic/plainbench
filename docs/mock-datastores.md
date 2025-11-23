@@ -466,6 +466,259 @@ finally:
     conn.close()  # Always close!
 ```
 
+## Latency Simulation
+
+PlainBench mocks can simulate realistic production latencies, allowing you to benchmark your application logic with network/database timing overhead without requiring actual infrastructure.
+
+### Why Simulate Latency?
+
+While SQLite-backed mocks are extremely fast, this doesn't always reflect production conditions. Latency simulation allows you to:
+
+1. **Benchmark with realistic timing** - Understand how your code performs with production-like latencies
+2. **Test different scenarios** - Compare same-datacenter vs cross-region performance
+3. **Identify bottlenecks** - See how latency impacts your application logic
+4. **Optimize strategies** - Compare optimization approaches under realistic conditions
+
+### Default Latencies
+
+PlainBench includes researched default latencies based on typical production deployments:
+
+#### PostgreSQL (same datacenter)
+
+| Operation | Default Latency | Typical Range |
+|-----------|----------------|---------------|
+| Simple SELECT (indexed) | 1ms | 0.5-5ms |
+| Complex query (JOINs) | 10ms | 5-20ms |
+| INSERT (single row) | 2ms | 1-3ms |
+| INSERT (batch) | 15ms | 10-20ms |
+| UPDATE | 2ms | 1-3ms |
+| COMMIT | 3ms | 2-5ms |
+| Connection | 2ms | 1-3ms |
+
+#### Kafka (well-tuned cluster)
+
+| Operation | Default Latency | Typical Range |
+|-----------|----------------|---------------|
+| Producer send (single) | 5ms | 1-10ms |
+| Producer send (batch) | 15ms | 5-30ms |
+| Producer flush | 10ms | 5-20ms |
+| Consumer poll | 2ms | 1-5ms |
+| Consumer commit | 5ms | 3-10ms |
+
+#### Redis (same datacenter)
+
+| Operation | Default Latency | Typical Range |
+|-----------|----------------|---------------|
+| GET | 0.5ms | 0.1-1ms |
+| SET | 0.5ms | 0.1-1ms |
+| MGET | 1ms | 0.5-2ms |
+| LPUSH/RPUSH | 0.6ms | 0.3-1ms |
+| LRANGE | 1ms | 0.5-2ms |
+| HSET | 0.6ms | 0.3-1ms |
+| HGETALL | 1ms | 0.5-2ms |
+| Pipeline execute | 2ms | 1-3ms |
+
+*Research sources:*
+- [PostgreSQL Network Latency Impact](https://www.cybertec-postgresql.com/en/postgresql-network-latency-does-make-a-big-difference/)
+- [Kafka Performance Metrics](https://developer.confluent.io/learn/kafka-performance/)
+- [Redis Latency Diagnostics](https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/latency/)
+
+### Basic Usage
+
+Enable latency simulation with the `simulate_latency` parameter:
+
+```python
+from plainbench import benchmark
+from plainbench.mocks import use_mock_postgres
+
+@use_mock_postgres(simulate_latency=True)
+@benchmark(runs=10)
+def query_users(db_conn):
+    """Benchmark with realistic ~1ms query latency."""
+    cursor = db_conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE id = 1")
+    return cursor.fetchone()
+
+result = query_users()
+print(f"Mean time: {result.mean*1000:.2f}ms")
+# Output: Mean time: ~1.5ms (1ms query + overhead)
+```
+
+### Custom Latencies
+
+Override default latencies for specific scenarios:
+
+```python
+# Simulate high-latency network (cross-region)
+@use_mock_postgres(
+    simulate_latency=True,
+    custom_latencies={
+        'execute_simple': 0.050,  # 50ms
+        'commit': 0.020,          # 20ms
+    }
+)
+@benchmark(runs=10)
+def slow_network_query(db_conn):
+    """Test performance with slow network."""
+    cursor = db_conn.cursor()
+    cursor.execute("SELECT * FROM users")
+    db_conn.commit()
+    return cursor.fetchall()
+```
+
+### Advanced Configuration
+
+For complete control, use `LatencyConfig`:
+
+```python
+from plainbench.mocks.base import LatencyConfig
+
+# Create custom latency configuration
+latency_config = LatencyConfig(
+    enabled=True,
+    variance=0.3,  # ±30% variance (simulates network jitter)
+    operation_latencies={
+        'execute_simple': 0.100,  # 100ms
+        'execute_complex': 0.500,  # 500ms
+        'commit': 0.050,           # 50ms
+    }
+)
+
+@use_mock_postgres(latency_config=latency_config)
+@benchmark(runs=10)
+def worst_case_scenario(db_conn):
+    """Test with worst-case latencies and jitter."""
+    cursor = db_conn.cursor()
+    cursor.execute("SELECT * FROM users JOIN orders ON users.id = orders.user_id")
+    return cursor.fetchall()
+```
+
+### Comparing Scenarios
+
+Benchmark your code under different latency conditions:
+
+```python
+# No latency (pure application logic)
+@use_mock_postgres(simulate_latency=False)
+@benchmark(runs=100)
+def baseline(db_conn):
+    cursor = db_conn.cursor()
+    for i in range(10):
+        cursor.execute("SELECT * FROM users WHERE id = ?", (i,))
+    return cursor.fetchone()
+
+# Same datacenter
+@use_mock_postgres(simulate_latency=True)
+@benchmark(runs=100)
+def same_datacenter(db_conn):
+    cursor = db_conn.cursor()
+    for i in range(10):
+        cursor.execute("SELECT * FROM users WHERE id = ?", (i,))
+    return cursor.fetchone()
+
+# Cross-region
+@use_mock_postgres(
+    simulate_latency=True,
+    custom_latencies={'execute_simple': 0.100}  # 100ms
+)
+@benchmark(runs=100)
+def cross_region(db_conn):
+    cursor = db_conn.cursor()
+    for i in range(10):
+        cursor.execute("SELECT * FROM users WHERE id = ?", (i,))
+    return cursor.fetchone()
+
+# Compare results
+r1 = baseline()
+r2 = same_datacenter()
+r3 = cross_region()
+
+print(f"Baseline (no latency): {r1.mean*1000:.2f}ms")
+print(f"Same datacenter:       {r2.mean*1000:.2f}ms")
+print(f"Cross-region:          {r3.mean*1000:.2f}ms")
+```
+
+### Kafka Latency
+
+Kafka latency simulation:
+
+```python
+from plainbench.mocks import use_mock_kafka
+
+@use_mock_kafka(simulate_latency=True)
+@benchmark(runs=50)
+def produce_messages(producer):
+    """Each send adds ~5ms latency."""
+    for i in range(10):
+        producer.send('events', value=f'event-{i}'.encode())
+    producer.flush()  # Adds ~10ms latency
+    return 10
+
+result = produce_messages()
+print(f"Total time: {result.mean*1000:.2f}ms")
+# Output: ~60ms (10 sends * 5ms + 10ms flush)
+```
+
+### Redis Latency
+
+Redis latency simulation:
+
+```python
+from plainbench.mocks import use_mock_redis
+
+@use_mock_redis(simulate_latency=True)
+@benchmark(runs=100)
+def cache_operations(redis):
+    """Each operation adds ~0.5ms latency."""
+    for i in range(20):
+        redis.set(f'key:{i}', f'value:{i}')  # 20 * 0.5ms
+    for i in range(20):
+        redis.get(f'key:{i}')                # 20 * 0.5ms
+    return 40
+
+result = cache_operations()
+print(f"Total time: {result.mean*1000:.2f}ms")
+# Output: ~20ms (40 operations * 0.5ms)
+```
+
+### Best Practices
+
+1. **Start without latency** - First benchmark pure application logic
+2. **Add default latency** - Then test with realistic defaults
+3. **Test scenarios** - Compare different network/infrastructure conditions
+4. **Document assumptions** - Note which latencies you're using and why
+5. **Validate with production** - Compare simulated results with real metrics
+
+### When to Use Latency Simulation
+
+**Use latency simulation when:**
+- Testing network-sensitive code
+- Comparing optimization strategies
+- Understanding latency impact
+- Preparing for production deployment
+- Documenting performance characteristics
+
+**Skip latency simulation when:**
+- Benchmarking pure algorithmic performance
+- Profiling CPU-bound code
+- Testing in-memory operations
+- You need maximum benchmark speed
+
+### Performance Impact
+
+Latency simulation uses `time.sleep()` which is very accurate but does add overhead:
+- Disabled (default): No overhead
+- Enabled: Adds configured latency ± variance
+- Minimal CPU impact: Sleep is non-blocking
+
+### Examples
+
+See [`examples/mock_latency_simulation.py`](../examples/mock_latency_simulation.py) for comprehensive examples demonstrating:
+- Baseline vs latency comparisons
+- Custom latency scenarios
+- Multi-datastore latency
+- Worst-case testing
+
 ## Troubleshooting
 
 ### "No such table" errors

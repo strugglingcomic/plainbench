@@ -3,11 +3,12 @@
 import os
 import sqlite3
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
 
-from plainbench.mocks.base import ConnectionPool, MockDataStore
+from plainbench.mocks.base import ConnectionPool, LatencyConfig, MockDataStore
 from plainbench.mocks.decorators import (
     use_mock_datastore,
     use_mock_kafka,
@@ -714,3 +715,287 @@ class TestMockDecorators:
         assert test_func.__name__ == "test_func"
         assert test_func.__doc__ == "Test function docstring."
         assert hasattr(test_func, "_mock_postgres")
+
+
+# ==============================================================================
+# Latency Simulation Tests
+# ==============================================================================
+
+
+class TestLatencyConfig:
+    """Tests for LatencyConfig class."""
+
+    def test_latency_config_disabled(self):
+        """Test that disabled latency config returns 0."""
+        config = LatencyConfig(enabled=False)
+        assert config.get_latency("any_operation") == 0.0
+
+    def test_latency_config_default_latency(self):
+        """Test default latency for unknown operations."""
+        config = LatencyConfig(enabled=True, default_latency=0.005, variance=0.0)
+
+        latency = config.get_latency("unknown_operation")
+        assert latency == 0.005
+
+    def test_latency_config_specific_operation(self):
+        """Test specific operation latency."""
+        config = LatencyConfig(
+            enabled=True,
+            operation_latencies={"read": 0.002, "write": 0.003},
+            variance=0.0,
+        )
+
+        assert config.get_latency("read") == 0.002
+        assert config.get_latency("write") == 0.003
+
+    def test_latency_config_variance(self):
+        """Test that variance is applied correctly."""
+        config = LatencyConfig(
+            enabled=True, default_latency=0.010, variance=0.2  # ±20%
+        )
+
+        # Test multiple times to ensure variance is applied
+        latencies = [config.get_latency("test") for _ in range(100)]
+
+        # All latencies should be within ±20% of 0.010
+        assert all(0.008 <= lat <= 0.012 for lat in latencies)
+        # Variance should cause different values
+        assert len(set(latencies)) > 1
+
+    def test_latency_config_simulate(self):
+        """Test that simulate() actually sleeps."""
+        config = LatencyConfig(
+            enabled=True, operation_latencies={"test": 0.010}, variance=0.0
+        )
+
+        start = time.perf_counter()
+        config.simulate("test")
+        elapsed = time.perf_counter() - start
+
+        # Should sleep for approximately 10ms (allowing for system overhead)
+        assert elapsed >= 0.008
+
+
+class TestPostgresLatency:
+    """Tests for PostgreSQL latency simulation."""
+
+    def test_postgres_latency_disabled(self):
+        """Test that no latency is added when disabled."""
+        latency_config = LatencyConfig(enabled=False)
+        conn = MockPostgresConnection(latency_config=latency_config)
+        cursor = conn.cursor()
+
+        start = time.perf_counter()
+        cursor.execute("SELECT 1")
+        elapsed = time.perf_counter() - start
+
+        # Should be very fast (< 1ms) without latency
+        assert elapsed < 0.001
+        conn.close()
+
+    def test_postgres_latency_enabled(self):
+        """Test that latency is added when enabled."""
+        latency_config = LatencyConfig(
+            enabled=True, operation_latencies={"execute_simple": 0.010}, variance=0.0
+        )
+        conn = MockPostgresConnection(latency_config=latency_config)
+        cursor = conn.cursor()
+
+        start = time.perf_counter()
+        cursor.execute("SELECT 1")
+        elapsed = time.perf_counter() - start
+
+        # Should sleep for approximately 10ms
+        assert elapsed >= 0.008
+        conn.close()
+
+    def test_postgres_commit_latency(self):
+        """Test commit latency simulation."""
+        latency_config = LatencyConfig(
+            enabled=True, operation_latencies={"commit": 0.005}, variance=0.0
+        )
+        conn = MockPostgresConnection(latency_config=latency_config)
+        cursor = conn.cursor()
+
+        cursor.execute("CREATE TABLE test (id INTEGER)")
+        cursor.execute("INSERT INTO test VALUES (1)")
+
+        start = time.perf_counter()
+        conn.commit()
+        elapsed = time.perf_counter() - start
+
+        # Should sleep for approximately 5ms
+        assert elapsed >= 0.004
+        conn.close()
+
+    def test_postgres_decorator_simulate_latency(self):
+        """Test latency simulation via decorator."""
+
+        @use_mock_postgres(simulate_latency=True)
+        def test_func(db_conn):
+            cursor = db_conn.cursor()
+            cursor.execute("SELECT 1")
+            return cursor.fetchone()[0]
+
+        start = time.perf_counter()
+        result = test_func()
+        elapsed = time.perf_counter() - start
+
+        assert result == 1
+        # Should have some latency (at least the execute latency)
+        assert elapsed >= 0.0005
+
+    def test_postgres_decorator_custom_latencies(self):
+        """Test custom latencies via decorator."""
+
+        @use_mock_postgres(
+            simulate_latency=True, custom_latencies={"execute_simple": 0.020}
+        )
+        def test_func(db_conn):
+            cursor = db_conn.cursor()
+            cursor.execute("SELECT 1")
+            return cursor.fetchone()[0]
+
+        start = time.perf_counter()
+        result = test_func()
+        elapsed = time.perf_counter() - start
+
+        assert result == 1
+        # Should use custom 20ms latency
+        assert elapsed >= 0.015
+
+
+class TestKafkaLatency:
+    """Tests for Kafka latency simulation."""
+
+    def test_kafka_producer_latency_disabled(self):
+        """Test producer without latency."""
+        latency_config = LatencyConfig(enabled=False)
+        producer = MockKafkaProducer(latency_config=latency_config)
+
+        start = time.perf_counter()
+        producer.send("test", value=b"message")
+        elapsed = time.perf_counter() - start
+
+        # Should be very fast without latency
+        assert elapsed < 0.001
+        producer.close()
+
+    def test_kafka_producer_latency_enabled(self):
+        """Test producer with latency."""
+        latency_config = LatencyConfig(
+            enabled=True,
+            operation_latencies={"producer_send_single": 0.005},
+            variance=0.0,
+        )
+        producer = MockKafkaProducer(latency_config=latency_config)
+
+        start = time.perf_counter()
+        producer.send("test", value=b"message")
+        elapsed = time.perf_counter() - start
+
+        # Should sleep for approximately 5ms
+        assert elapsed >= 0.004
+        producer.close()
+
+    def test_kafka_consumer_latency_enabled(self):
+        """Test consumer poll latency."""
+        latency_config = LatencyConfig(
+            enabled=True, operation_latencies={"consumer_poll": 0.003}, variance=0.0
+        )
+        consumer = MockKafkaConsumer(
+            "test-topic", latency_config=latency_config, group_id="test"
+        )
+
+        start = time.perf_counter()
+        consumer.poll(max_records=1)
+        elapsed = time.perf_counter() - start
+
+        # Should sleep for approximately 3ms
+        assert elapsed >= 0.002
+        consumer.close()
+
+    def test_kafka_decorator_simulate_latency(self):
+        """Test Kafka latency via decorator."""
+
+        @use_mock_kafka(simulate_latency=True)
+        def test_func(producer):
+            producer.send("test", value=b"message")
+            return True
+
+        start = time.perf_counter()
+        result = test_func()
+        elapsed = time.perf_counter() - start
+
+        assert result is True
+        # Should have some latency
+        assert elapsed >= 0.003
+
+
+class TestRedisLatency:
+    """Tests for Redis latency simulation."""
+
+    def test_redis_latency_disabled(self):
+        """Test Redis without latency."""
+        latency_config = LatencyConfig(enabled=False)
+        redis = MockRedis(latency_config=latency_config)
+
+        start = time.perf_counter()
+        redis.set("key", "value")
+        redis.get("key")
+        elapsed = time.perf_counter() - start
+
+        # Should be very fast without latency
+        assert elapsed < 0.001
+        redis.close()
+
+    def test_redis_latency_enabled(self):
+        """Test Redis with latency."""
+        latency_config = LatencyConfig(
+            enabled=True, operation_latencies={"get": 0.001, "set": 0.001}, variance=0.0
+        )
+        redis = MockRedis(latency_config=latency_config)
+
+        start = time.perf_counter()
+        redis.set("key", "value")
+        redis.get("key")
+        elapsed = time.perf_counter() - start
+
+        # Should sleep for approximately 2ms (1ms set + 1ms get)
+        assert elapsed >= 0.0015
+        redis.close()
+
+    def test_redis_decorator_simulate_latency(self):
+        """Test Redis latency via decorator."""
+
+        @use_mock_redis(simulate_latency=True)
+        def test_func(redis):
+            redis.set("key", "value")
+            return redis.get("key")
+
+        start = time.perf_counter()
+        result = test_func()
+        elapsed = time.perf_counter() - start
+
+        assert result is not None
+        # Should have some latency (at least set + get)
+        assert elapsed >= 0.0005
+
+    def test_redis_pipeline_latency(self):
+        """Test Redis pipeline latency."""
+        latency_config = LatencyConfig(
+            enabled=True, operation_latencies={"pipeline_execute": 0.005}, variance=0.0
+        )
+        redis = MockRedis(latency_config=latency_config)
+
+        with redis.pipeline() as pipe:
+            pipe.set("key1", "value1")
+            pipe.set("key2", "value2")
+
+            start = time.perf_counter()
+            pipe.execute()
+            elapsed = time.perf_counter() - start
+
+        # Should sleep for approximately 5ms for pipeline execution
+        assert elapsed >= 0.004
+        redis.close()

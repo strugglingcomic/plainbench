@@ -4,15 +4,26 @@ import functools
 import sys
 from typing import Any, Callable, Dict, Optional
 
-from plainbench.mocks.kafka import MockKafkaConsumer, MockKafkaProducer
-from plainbench.mocks.postgres import MockPostgresConnection
-from plainbench.mocks.redis import MockRedis
+from plainbench.mocks.base import LatencyConfig
+from plainbench.mocks.kafka import (
+    DEFAULT_KAFKA_LATENCIES,
+    MockKafkaConsumer,
+    MockKafkaProducer,
+)
+from plainbench.mocks.postgres import (
+    DEFAULT_POSTGRES_LATENCIES,
+    MockPostgresConnection,
+)
+from plainbench.mocks.redis import DEFAULT_REDIS_LATENCIES, MockRedis
 
 
 def use_mock_postgres(
     database: str = ":memory:",
     autocommit: bool = False,
     inject_as: str = "db_conn",
+    simulate_latency: bool = False,
+    latency_config: Optional[LatencyConfig] = None,
+    custom_latencies: Optional[Dict[str, float]] = None,
     **config,
 ) -> Callable:
     """
@@ -26,6 +37,9 @@ def use_mock_postgres(
         database: SQLite database path (default: in-memory)
         autocommit: Enable autocommit mode
         inject_as: Parameter name for injection (default: 'db_conn')
+        simulate_latency: Enable realistic latency simulation
+        latency_config: Custom LatencyConfig object (overrides simulate_latency)
+        custom_latencies: Dict of operation->latency overrides in seconds
         **config: Additional connection configuration
 
     Example:
@@ -58,9 +72,25 @@ def use_mock_postgres(
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            # Prepare latency configuration
+            latency_cfg = latency_config
+            if latency_cfg is None and simulate_latency:
+                # Create config with default latencies
+                latency_cfg = LatencyConfig(
+                    enabled=True, operation_latencies=DEFAULT_POSTGRES_LATENCIES.copy()
+                )
+                # Apply custom latency overrides
+                if custom_latencies:
+                    latency_cfg.operation_latencies.update(custom_latencies)
+            elif latency_cfg is None:
+                latency_cfg = LatencyConfig(enabled=False)
+
             # Create mock connection
             mock_conn = MockPostgresConnection(
-                database=database, autocommit=autocommit, **config
+                database=database,
+                autocommit=autocommit,
+                latency_config=latency_cfg,
+                **config,
             )
 
             try:
@@ -87,6 +117,9 @@ def use_mock_kafka(
     inject_consumer: bool = False,
     topics: Optional[list] = None,
     group_id: str = "test-group",
+    simulate_latency: bool = False,
+    latency_config: Optional[LatencyConfig] = None,
+    custom_latencies: Optional[Dict[str, float]] = None,
     **config,
 ) -> Callable:
     """
@@ -102,6 +135,9 @@ def use_mock_kafka(
         inject_consumer: Inject a consumer (default: False)
         topics: Topics to subscribe to (for consumer)
         group_id: Consumer group ID
+        simulate_latency: Enable realistic latency simulation
+        latency_config: Custom LatencyConfig object (overrides simulate_latency)
+        custom_latencies: Dict of operation->latency overrides in seconds
         **config: Additional Kafka configuration
 
     Example:
@@ -149,19 +185,38 @@ def use_mock_kafka(
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            # Prepare latency configuration
+            latency_cfg = latency_config
+            if latency_cfg is None and simulate_latency:
+                # Create config with default latencies
+                latency_cfg = LatencyConfig(
+                    enabled=True, operation_latencies=DEFAULT_KAFKA_LATENCIES.copy()
+                )
+                # Apply custom latency overrides
+                if custom_latencies:
+                    latency_cfg.operation_latencies.update(custom_latencies)
+            elif latency_cfg is None:
+                latency_cfg = LatencyConfig(enabled=False)
+
             producer = None
             consumer = None
 
             try:
                 # Create producer if requested
                 if inject_producer:
-                    producer = MockKafkaProducer(database=database, **config)
+                    producer = MockKafkaProducer(
+                        database=database, latency_config=latency_cfg, **config
+                    )
 
                 # Create consumer if requested
                 if inject_consumer:
                     consumer_topics = topics or []
                     consumer = MockKafkaConsumer(
-                        *consumer_topics, database=database, group_id=group_id, **config
+                        *consumer_topics,
+                        database=database,
+                        group_id=group_id,
+                        latency_config=latency_cfg,
+                        **config,
                     )
 
                 # Inject based on configuration
@@ -199,6 +254,9 @@ def use_mock_kafka(
 def use_mock_redis(
     database: str = ":memory:",
     decode_responses: bool = False,
+    simulate_latency: bool = False,
+    latency_config: Optional[LatencyConfig] = None,
+    custom_latencies: Optional[Dict[str, float]] = None,
     **config,
 ) -> Callable:
     """
@@ -211,6 +269,9 @@ def use_mock_redis(
     Args:
         database: SQLite database path (default: in-memory)
         decode_responses: Decode byte responses to strings
+        simulate_latency: Enable realistic latency simulation
+        latency_config: Custom LatencyConfig object (overrides simulate_latency)
+        custom_latencies: Dict of operation->latency overrides in seconds
         **config: Additional Redis configuration
 
     Example:
@@ -273,9 +334,25 @@ def use_mock_redis(
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            # Prepare latency configuration
+            latency_cfg = latency_config
+            if latency_cfg is None and simulate_latency:
+                # Create config with default latencies
+                latency_cfg = LatencyConfig(
+                    enabled=True, operation_latencies=DEFAULT_REDIS_LATENCIES.copy()
+                )
+                # Apply custom latency overrides
+                if custom_latencies:
+                    latency_cfg.operation_latencies.update(custom_latencies)
+            elif latency_cfg is None:
+                latency_cfg = LatencyConfig(enabled=False)
+
             # Create mock Redis client
             mock_redis = MockRedis(
-                database=database, decode_responses=decode_responses, **config
+                database=database,
+                decode_responses=decode_responses,
+                latency_config=latency_cfg,
+                **config,
             )
 
             try:

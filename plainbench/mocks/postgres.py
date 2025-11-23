@@ -5,7 +5,33 @@ import sqlite3
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from plainbench.mocks.base import MockDataStore
+from plainbench.mocks.base import LatencyConfig, MockDataStore
+
+# Default latencies for PostgreSQL operations (in seconds)
+# Based on research of typical production PostgreSQL deployments in same-datacenter
+# environments with medium-sized workloads on properly indexed tables.
+#
+# Research sources indicate:
+# - Simple indexed SELECT: 0.5-5ms typical
+# - Complex queries with JOINs: 5-20ms typical
+# - INSERT/UPDATE/DELETE: 1-3ms typical
+# - Batch operations: 10-20ms typical
+# - Transaction COMMIT: 2-5ms typical
+# - Connection establishment: 1-3ms typical
+DEFAULT_POSTGRES_LATENCIES = {
+    "connect": 0.002,  # 2ms - connection establishment overhead
+    "execute_simple": 0.001,  # 1ms - simple SELECT with index
+    "execute_complex": 0.010,  # 10ms - complex query with JOINs/subqueries
+    "fetchone": 0.0001,  # 0.1ms - fetch single row from result set
+    "fetchall": 0.001,  # 1ms - fetch all results (average result set)
+    "fetchmany": 0.0005,  # 0.5ms - fetch batch of rows
+    "insert_single": 0.002,  # 2ms - single row INSERT
+    "insert_batch": 0.015,  # 15ms - batch INSERT (multiple rows)
+    "update": 0.002,  # 2ms - UPDATE statement
+    "delete": 0.002,  # 2ms - DELETE statement
+    "commit": 0.003,  # 3ms - COMMIT transaction
+    "rollback": 0.001,  # 1ms - ROLLBACK transaction
+}
 
 
 class MockPostgresConnection(MockDataStore):
@@ -28,6 +54,7 @@ class MockPostgresConnection(MockDataStore):
         self,
         database: str = ":memory:",
         autocommit: bool = False,
+        latency_config: Optional[LatencyConfig] = None,
         **kwargs,
     ):
         """
@@ -36,9 +63,10 @@ class MockPostgresConnection(MockDataStore):
         Args:
             database: SQLite database path (default: in-memory)
             autocommit: Enable autocommit mode
+            latency_config: Configuration for latency simulation
             **kwargs: Additional connection parameters (for API compatibility)
         """
-        super().__init__(database, **kwargs)
+        super().__init__(database, latency_config=latency_config, **kwargs)
         self.autocommit = autocommit
         self._in_transaction = False
         self._closed = False
@@ -64,6 +92,8 @@ class MockPostgresConnection(MockDataStore):
         if self._closed:
             raise ValueError("Connection is closed")
         if not self.autocommit and self._in_transaction:
+            # Simulate commit latency
+            self.latency_config.simulate("commit")
             conn = self.connect()
             conn.execute("COMMIT")
             self._in_transaction = False
@@ -73,6 +103,8 @@ class MockPostgresConnection(MockDataStore):
         if self._closed:
             raise ValueError("Connection is closed")
         if not self.autocommit and self._in_transaction:
+            # Simulate rollback latency
+            self.latency_config.simulate("rollback")
             conn = self.connect()
             conn.execute("ROLLBACK")
             self._in_transaction = False
@@ -194,6 +226,62 @@ class MockPostgresCursor:
         # Handle list/tuple parameters
         return tuple(params) if isinstance(params, list) else params
 
+    def _classify_operation(self, sql: str) -> str:
+        """
+        Classify SQL operation for latency simulation.
+
+        Args:
+            sql: SQL statement
+
+        Returns:
+            Operation type for latency lookup
+        """
+        sql_upper = sql.upper().strip()
+
+        # Remove leading comments and whitespace
+        while sql_upper.startswith("--") or sql_upper.startswith("/*"):
+            if sql_upper.startswith("--"):
+                sql_upper = sql_upper.split("\n", 1)[1] if "\n" in sql_upper else ""
+            elif sql_upper.startswith("/*"):
+                sql_upper = sql_upper.split("*/", 1)[1] if "*/" in sql_upper else ""
+            sql_upper = sql_upper.strip()
+
+        if sql_upper.startswith("SELECT"):
+            # Check for complexity indicators
+            if any(
+                keyword in sql_upper
+                for keyword in ["JOIN", "UNION", "INTERSECT", "EXCEPT", "WITH"]
+            ):
+                return "execute_complex"
+            # Check for subqueries
+            if "SELECT" in sql_upper[6:]:  # Another SELECT after first
+                return "execute_complex"
+            return "execute_simple"
+
+        elif sql_upper.startswith("INSERT"):
+            # Check for batch insert (multiple value sets)
+            if sql_upper.count("),(") > 0 or "VALUES" in sql_upper and sql_upper.count(
+                "VALUES"
+            ) > 1:
+                return "insert_batch"
+            return "insert_single"
+
+        elif sql_upper.startswith("UPDATE"):
+            return "update"
+
+        elif sql_upper.startswith("DELETE"):
+            return "delete"
+
+        elif sql_upper.startswith("COMMIT"):
+            return "commit"
+
+        elif sql_upper.startswith("ROLLBACK"):
+            return "rollback"
+
+        else:
+            # Default for DDL and other statements
+            return "execute_simple"
+
     def execute(
         self,
         sql: str,
@@ -211,6 +299,12 @@ class MockPostgresCursor:
         """
         if self._closed:
             raise ValueError("Cursor is closed")
+
+        # Classify operation for latency simulation
+        operation_type = self._classify_operation(sql)
+
+        # Simulate execution latency
+        self.connection.latency_config.simulate(operation_type)
 
         # Start transaction if needed
         if not self.connection.autocommit and not self.connection._in_transaction:
@@ -251,6 +345,15 @@ class MockPostgresCursor:
         if self._closed:
             raise ValueError("Cursor is closed")
 
+        # Classify operation (executemany typically implies batch)
+        operation_type = self._classify_operation(sql)
+        # Force batch operation for executemany
+        if operation_type == "insert_single":
+            operation_type = "insert_batch"
+
+        # Simulate batch execution latency
+        self.connection.latency_config.simulate(operation_type)
+
         # Start transaction if needed
         if not self.connection.autocommit and not self.connection._in_transaction:
             self._sqlite_conn.execute("BEGIN")
@@ -282,6 +385,10 @@ class MockPostgresCursor:
         """
         if self._closed:
             raise ValueError("Cursor is closed")
+
+        # Simulate fetch latency
+        self.connection.latency_config.simulate("fetchone")
+
         return self._sqlite_cursor.fetchone()
 
     def fetchmany(self, size: Optional[int] = None) -> List[Tuple]:
@@ -296,6 +403,10 @@ class MockPostgresCursor:
         """
         if self._closed:
             raise ValueError("Cursor is closed")
+
+        # Simulate fetch latency
+        self.connection.latency_config.simulate("fetchmany")
+
         if size is None:
             size = self._arraysize
         return self._sqlite_cursor.fetchmany(size)
@@ -309,6 +420,10 @@ class MockPostgresCursor:
         """
         if self._closed:
             raise ValueError("Cursor is closed")
+
+        # Simulate fetch latency
+        self.connection.latency_config.simulate("fetchall")
+
         return self._sqlite_cursor.fetchall()
 
     def close(self) -> None:

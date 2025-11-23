@@ -6,7 +6,34 @@ import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from plainbench.mocks.base import MockDataStore
+from plainbench.mocks.base import LatencyConfig, MockDataStore
+
+# Default latencies for Redis operations (in seconds)
+# Based on research of typical Redis deployments in same-datacenter environments.
+#
+# Research sources indicate:
+# - Command processing: sub-microsecond
+# - Network round-trip (same datacenter): 100-300 microseconds (0.1-0.3ms)
+# - Typical production latency: 0.2-0.5ms for GET/SET with network
+# - Local connection: <1ms
+DEFAULT_REDIS_LATENCIES = {
+    "get": 0.0005,  # 0.5ms - GET single key with network
+    "set": 0.0005,  # 0.5ms - SET single key with network
+    "mget": 0.001,  # 1ms - MGET multiple keys
+    "mset": 0.001,  # 1ms - MSET multiple keys
+    "delete": 0.0005,  # 0.5ms - DEL
+    "exists": 0.0003,  # 0.3ms - EXISTS check
+    "ttl": 0.0003,  # 0.3ms - TTL check
+    "lpush": 0.0006,  # 0.6ms - LPUSH
+    "rpush": 0.0006,  # 0.6ms - RPUSH
+    "lrange": 0.001,  # 1ms - LRANGE
+    "sadd": 0.0006,  # 0.6ms - SADD
+    "smembers": 0.001,  # 1ms - SMEMBERS
+    "hset": 0.0006,  # 0.6ms - HSET
+    "hget": 0.0005,  # 0.5ms - HGET
+    "hgetall": 0.001,  # 1ms - HGETALL
+    "pipeline_execute": 0.002,  # 2ms - pipeline execution
+}
 
 
 class MockRedis(MockDataStore):
@@ -30,6 +57,7 @@ class MockRedis(MockDataStore):
         port: int = 6379,
         db: int = 0,
         decode_responses: bool = False,
+        latency_config: Optional[LatencyConfig] = None,
         **config,
     ):
         """
@@ -41,9 +69,10 @@ class MockRedis(MockDataStore):
             port: Redis port (for API compatibility)
             db: Redis database number (for API compatibility)
             decode_responses: Decode byte responses to strings
+            latency_config: Configuration for latency simulation
             **config: Additional configuration
         """
-        super().__init__(database, **config)
+        super().__init__(database, latency_config=latency_config, **config)
         self.host = host
         self.port = port
         self.db = db
@@ -198,6 +227,9 @@ class MockRedis(MockDataStore):
         Returns:
             True if set, False otherwise
         """
+        # Simulate SET latency
+        self.latency_config.simulate("set")
+
         self._cleanup_expired_keys()
         conn = self.connect()
 
@@ -244,6 +276,9 @@ class MockRedis(MockDataStore):
         Returns:
             Value or None if not found
         """
+        # Simulate GET latency
+        self.latency_config.simulate("get")
+
         self._cleanup_expired_keys()
         conn = self.connect()
 
@@ -269,6 +304,9 @@ class MockRedis(MockDataStore):
         Returns:
             Number of keys deleted
         """
+        # Simulate DELETE latency
+        self.latency_config.simulate("delete")
+
         conn = self.connect()
         count = 0
 
@@ -306,6 +344,9 @@ class MockRedis(MockDataStore):
         Returns:
             Number of existing keys
         """
+        # Simulate EXISTS latency
+        self.latency_config.simulate("exists")
+
         self._cleanup_expired_keys()
         conn = self.connect()
 
@@ -326,6 +367,9 @@ class MockRedis(MockDataStore):
         Returns:
             TTL in seconds, -1 if no expiration, -2 if key doesn't exist
         """
+        # Simulate TTL latency
+        self.latency_config.simulate("ttl")
+
         self._cleanup_expired_keys()
         conn = self.connect()
 
@@ -356,6 +400,9 @@ class MockRedis(MockDataStore):
         Returns:
             New length of list
         """
+        # Simulate LPUSH latency
+        self.latency_config.simulate("lpush")
+
         conn = self.connect()
 
         # Ensure key exists as list
@@ -399,6 +446,9 @@ class MockRedis(MockDataStore):
         Returns:
             New length of list
         """
+        # Simulate RPUSH latency
+        self.latency_config.simulate("rpush")
+
         conn = self.connect()
 
         # Ensure key exists as list
@@ -443,6 +493,9 @@ class MockRedis(MockDataStore):
         Returns:
             List of elements
         """
+        # Simulate LRANGE latency
+        self.latency_config.simulate("lrange")
+
         conn = self.connect()
 
         # Get all indices for this key (sorted)
@@ -484,6 +537,9 @@ class MockRedis(MockDataStore):
         Returns:
             Number of members added
         """
+        # Simulate SADD latency
+        self.latency_config.simulate("sadd")
+
         conn = self.connect()
 
         # Ensure key exists as set
@@ -520,6 +576,9 @@ class MockRedis(MockDataStore):
         Returns:
             Set of members
         """
+        # Simulate SMEMBERS latency
+        self.latency_config.simulate("smembers")
+
         conn = self.connect()
 
         rows = conn.execute(
@@ -542,6 +601,9 @@ class MockRedis(MockDataStore):
         Returns:
             1 if new field, 0 if updated
         """
+        # Simulate HSET latency
+        self.latency_config.simulate("hset")
+
         conn = self.connect()
 
         # Ensure key exists as hash
@@ -580,6 +642,9 @@ class MockRedis(MockDataStore):
         Returns:
             Field value or None
         """
+        # Simulate HGET latency
+        self.latency_config.simulate("hget")
+
         conn = self.connect()
 
         result = conn.execute(
@@ -600,6 +665,9 @@ class MockRedis(MockDataStore):
         Returns:
             Dictionary of field-value pairs
         """
+        # Simulate HGETALL latency
+        self.latency_config.simulate("hgetall")
+
         conn = self.connect()
 
         rows = conn.execute(
@@ -666,6 +734,9 @@ class MockRedisPipeline:
         Returns:
             List of command results
         """
+        # Simulate pipeline execution latency
+        self.redis.latency_config.simulate("pipeline_execute")
+
         results = []
 
         if self.transaction:
