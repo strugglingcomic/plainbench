@@ -1,0 +1,77 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-format:
+    name: Lint & Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install ruff
+
+      - name: Run ruff check
+        run: ruff check plainbench/ tests/
+
+      - name: Run ruff format check
+        run: ruff format --check plainbench/ tests/
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev,test]"
+
+      - name: Run tests with coverage
+        run: |
+          pytest \
+            --cov=plainbench \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --ignore=tests/unit/test_cli.py \
+            --ignore=tests/integration/test_cli_integration.py \
+            -v
+
+      - name: Check coverage
+        run: |
+          COVERAGE=$(python -c "import xml.etree.ElementTree as ET; tree = ET.parse('coverage.xml'); print(f\"{float(tree.getroot().attrib['line-rate']) * 100:.2f}\")")
+          echo "Coverage: $COVERAGE%"
+
+          # Create a comment for the PR
+          echo "### Test Coverage: $COVERAGE%" >> $GITHUB_STEP_SUMMARY
+          if (( $(echo "$COVERAGE >= 80" | bc -l) )); then
+            echo "✅ Coverage meets 80% target" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Coverage is below 80% target" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  check-pr:
+    name: PR Status Check
+    runs-on: ubuntu-latest
+    needs: [lint-and-format, test]
+    steps:
+      - name: All checks passed
+        run: echo "All PR checks passed! ✅"

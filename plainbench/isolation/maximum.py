@@ -2,15 +2,15 @@
 
 import os
 import warnings
-from typing import Dict, Any, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from .base import IsolationStrategy
 from .moderate import ModerateIsolation
 from .system_utils import (
-    get_platform,
     check_system_tuning,
-    is_aslr_enabled,
     disable_aslr,
+    get_platform,
+    is_aslr_enabled,
 )
 
 

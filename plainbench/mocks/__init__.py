@@ -18,6 +18,7 @@ Example:
         # Business logic here
 """
 
+from plainbench.mocks.base import LatencyConfig, MockDataStore
 from plainbench.mocks.decorators import (
     use_mock_datastore,
     use_mock_kafka,
@@ -29,6 +30,9 @@ from plainbench.mocks.postgres import MockPostgresConnection, MockPostgresCursor
 from plainbench.mocks.redis import MockRedis
 
 __all__ = [
+    # Base classes
+    "LatencyConfig",
+    "MockDataStore",
     # Decorators
     "use_mock_postgres",
     "use_mock_kafka",

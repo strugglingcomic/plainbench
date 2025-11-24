@@ -11,11 +11,10 @@ These utilities are used by isolation strategies to detect and warn about
 non-optimal system settings for benchmarking.
 """
 
-import os
 import platform
 import warnings
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
 
 
 def get_platform() -> str:

@@ -2,7 +2,7 @@
 
 import functools
 import sys
-from typing import Any, Callable, Dict, Optional
+from typing import Callable, Dict, Optional
 
 from plainbench.mocks.base import LatencyConfig
 from plainbench.mocks.kafka import (

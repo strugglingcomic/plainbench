@@ -53,10 +53,10 @@ def get_metric_registry() -> MetricRegistry:
 
 
 # Register built-in metrics
-from .timing import CPUTimeCollector, WallTimeCollector
-from .memory import ProcessMemoryCollector, TraceMallocCollector
-from .io import IOCollector
 from .cpu import CPUCollector
+from .io import IOCollector
+from .memory import ProcessMemoryCollector, TraceMallocCollector
+from .timing import CPUTimeCollector, WallTimeCollector
 
 _registry.register("wall_time", WallTimeCollector)
 _registry.register("cpu_time", CPUTimeCollector)

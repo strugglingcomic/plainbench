@@ -7,9 +7,9 @@ Provides black-box benchmarking of shell commands with:
 - Both snapshot and continuous monitoring modes
 """
 
-from .runner import benchmark_shell, ShellCommandRunner
-from .results import ShellBenchmarkResult, ShellCommandResult
 from .monitor import ProcessMonitor
+from .results import ShellBenchmarkResult, ShellCommandResult
+from .runner import ShellCommandRunner, benchmark_shell
 
 __all__ = [
     'benchmark_shell',
