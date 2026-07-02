@@ -1,11 +1,11 @@
 """Factory for creating isolation strategies."""
 
 from typing import Dict, Type
+
 from .base import IsolationStrategy
+from .maximum import MaximumIsolation
 from .minimal import MinimalIsolation
 from .moderate import ModerateIsolation
-from .maximum import MaximumIsolation
-
 
 # Registry of available isolation strategies
 _ISOLATION_STRATEGIES: Dict[str, Type[IsolationStrategy]] = {

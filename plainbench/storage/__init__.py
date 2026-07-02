@@ -10,12 +10,12 @@ Provides SQLite-backed storage with:
 
 from plainbench.storage.database import BenchmarkDatabase
 from plainbench.storage.models import (
-    Environment,
-    BenchmarkRun,
     Benchmark,
-    Measurement,
-    BenchmarkStatistics,
     BenchmarkComparison,
+    BenchmarkRun,
+    BenchmarkStatistics,
+    Environment,
+    Measurement,
 )
 
 __all__ = [

@@ -1,7 +1,6 @@
 """Unit tests for mock data store implementations."""
 
 import os
-import sqlite3
 import tempfile
 import time
 from pathlib import Path
@@ -18,7 +17,6 @@ from plainbench.mocks.decorators import (
 from plainbench.mocks.kafka import MockKafkaConsumer, MockKafkaProducer
 from plainbench.mocks.postgres import MockPostgresConnection, MockPostgresCursor
 from plainbench.mocks.redis import MockRedis
-
 
 # ==============================================================================
 # Base Mock Tests

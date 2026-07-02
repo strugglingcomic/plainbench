@@ -1,7 +1,6 @@
 """Configuration settings for PlainBench."""
 
 import os
-from pathlib import Path
 from typing import List, Optional
 
 try:
@@ -9,7 +8,8 @@ try:
     PYDANTIC_V2 = True
 except ImportError:
     try:
-        from pydantic import BaseModel, Field, validator as field_validator
+        from pydantic import BaseModel, Field
+        from pydantic import validator as field_validator
         PYDANTIC_V2 = False
     except ImportError:
         # Fallback to dataclass if pydantic is not available

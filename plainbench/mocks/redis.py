@@ -2,7 +2,6 @@
 
 import json
 import sqlite3
-import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -49,6 +48,8 @@ class MockRedis(MockDataStore):
         value = redis.get('key')
         redis.close()
     """
+
+    DEFAULT_LATENCIES = DEFAULT_REDIS_LATENCIES
 
     def __init__(
         self,
@@ -731,27 +732,29 @@ class MockRedisPipeline:
         """
         Execute all queued commands.
 
+        A pipeline is a single network round trip, so latency is charged
+        once for the whole batch rather than per command.
+
         Returns:
             List of command results
         """
-        # Simulate pipeline execution latency
         self.redis.latency_config.simulate("pipeline_execute")
 
         results = []
-
-        if self.transaction:
-            # Execute in transaction
-            with self.redis.transaction():
+        original_config = self.redis.latency_config
+        self.redis.latency_config = LatencyConfig(enabled=False)
+        try:
+            if self.transaction:
+                with self.redis.transaction():
+                    for cmd_name, args, kwargs in self.commands:
+                        method = getattr(self.redis, cmd_name)
+                        results.append(method(*args, **kwargs))
+            else:
                 for cmd_name, args, kwargs in self.commands:
                     method = getattr(self.redis, cmd_name)
-                    result = method(*args, **kwargs)
-                    results.append(result)
-        else:
-            # Execute without transaction
-            for cmd_name, args, kwargs in self.commands:
-                method = getattr(self.redis, cmd_name)
-                result = method(*args, **kwargs)
-                results.append(result)
+                    results.append(method(*args, **kwargs))
+        finally:
+            self.redis.latency_config = original_config
 
         self.commands.clear()
         return results

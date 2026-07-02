@@ -2,27 +2,27 @@
 Unit tests for isolation strategies.
 """
 
-import os
 import gc
-import pytest
+import os
 import warnings
-from unittest.mock import Mock, patch, MagicMock
+
+import pytest
 
 from plainbench.isolation.base import IsolationStrategy
-from plainbench.isolation.minimal import MinimalIsolation
-from plainbench.isolation.moderate import ModerateIsolation
-from plainbench.isolation.maximum import MaximumIsolation
 from plainbench.isolation.factory import (
     create_isolation_strategy,
     get_available_strategies,
     register_isolation_strategy,
 )
+from plainbench.isolation.maximum import MaximumIsolation
+from plainbench.isolation.minimal import MinimalIsolation
+from plainbench.isolation.moderate import ModerateIsolation
 from plainbench.isolation.system_utils import (
-    get_platform,
-    get_cpu_governor,
-    is_turbo_boost_enabled,
-    is_aslr_enabled,
     check_system_tuning,
+    get_cpu_governor,
+    get_platform,
+    is_aslr_enabled,
+    is_turbo_boost_enabled,
 )
 
 
@@ -167,7 +167,6 @@ class TestMaximumIsolation:
         # Set some test environment variables
         os.environ['TEST_VAR_1'] = 'value1'
         os.environ['TEST_VAR_2'] = 'value2'
-        original_env = dict(os.environ)
 
         isolation = MaximumIsolation(minimal_env=True)
 

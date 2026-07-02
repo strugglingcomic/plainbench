@@ -3,7 +3,7 @@
 import gc
 import os
 import warnings
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 try:
     import psutil
@@ -136,7 +136,8 @@ class ModerateIsolation(IsolationStrategy):
                 warnings.warn(
                     f"Invalid CPU cores specified: {cores}. "
                     f"Valid range is 0-{cpu_count-1}. Skipping CPU pinning.",
-                    UserWarning
+                    UserWarning,
+                    stacklevel=2,
                 )
                 return
 
@@ -148,14 +149,16 @@ class ModerateIsolation(IsolationStrategy):
                 warnings.warn(
                     f"Failed to set CPU affinity to cores {valid_cores}: {e}. "
                     "Continuing without CPU pinning.",
-                    UserWarning
+                    UserWarning,
+                    stacklevel=2,
                 )
                 self.affinity_supported = False
 
         except Exception as e:
             warnings.warn(
                 f"Unexpected error setting up CPU affinity: {e}",
-                UserWarning
+                UserWarning,
+                stacklevel=2,
             )
 
     def _setup_priority(self) -> None:
@@ -192,14 +195,16 @@ class ModerateIsolation(IsolationStrategy):
                     f"Failed to set high process priority: {e}. "
                     "This may cause performance variance. "
                     "Consider running with elevated privileges for best results.",
-                    UserWarning
+                    UserWarning,
+                    stacklevel=2,
                 )
                 self.priority_supported = False
 
         except Exception as e:
             warnings.warn(
                 f"Unexpected error setting up process priority: {e}",
-                UserWarning
+                UserWarning,
+                stacklevel=2,
             )
 
     def _setup_pythonhashseed(self) -> None:
