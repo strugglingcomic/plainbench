@@ -1,12 +1,3 @@
-"""
-Command-line interface module.
+"""PlainBench command-line interface (see plainbench.cli.main)."""
 
-Provides CLI commands:
-- run: Run benchmarks
-- compare: Compare benchmark results
-- show: Display results
-- export: Export results to various formats
-- init: Initialize benchmark suite
-"""
-
-__all__ = []
+__all__ = ["main"]

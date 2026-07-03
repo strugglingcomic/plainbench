@@ -1,13 +1,11 @@
 """
-Analysis module for benchmark results.
-
-Provides:
-- Statistical computations (mean, median, stddev, percentiles)
-- Benchmark comparison with significance testing
-- Performance regression detection
-- Export functionality (JSON, CSV, HTML)
+Analysis of stored benchmark runs: comparison and regression detection.
 """
 
-from plainbench.analysis.comparison import compare_runs, detect_regressions
+from plainbench.analysis.comparison import (
+    RunComparison,
+    compare_runs,
+    detect_regressions,
+)
 
-__all__ = ['compare_runs', 'detect_regressions']
+__all__ = ["RunComparison", "compare_runs", "detect_regressions"]

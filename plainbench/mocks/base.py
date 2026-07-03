@@ -6,7 +6,23 @@ import time
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
+
+# Named infrastructure profiles: the network round-trip time (in seconds) your
+# application would pay per operation, depending on where the datastore lives
+# relative to the application. Every mock operation models one client round trip,
+# so the RTT is added on top of the store's base processing latency.
+#
+# Values are typical figures for cloud deployments (loopback, intra-AZ,
+# inter-AZ, inter-region, and intercontinental links respectively).
+NETWORK_PROFILES: Dict[str, float] = {
+    "in_process": 0.0,  # no network at all: raw SQLite-backed mock speed
+    "same_host": 0.00005,  # loopback / unix socket: ~0.05ms
+    "same_zone": 0.0005,  # same availability zone: ~0.5ms
+    "same_region": 0.002,  # cross-AZ within a region: ~2ms
+    "cross_region": 0.060,  # e.g. us-east <-> us-west: ~60ms
+    "cross_continent": 0.150,  # e.g. us <-> eu/apac: ~150ms
+}
 
 
 @dataclass
@@ -39,6 +55,46 @@ class LatencyConfig:
     default_latency: float = 0.001  # 1ms default
     variance: float = 0.2  # ±20% variance
     operation_latencies: Dict[str, float] = field(default_factory=dict)
+
+    @classmethod
+    def for_profile(
+        cls,
+        profile: str,
+        base_latencies: Optional[Dict[str, float]] = None,
+    ) -> "LatencyConfig":
+        """
+        Build a LatencyConfig for a named infrastructure profile.
+
+        The profile's network round-trip time is added to every operation's
+        base processing latency, so the same application code can be
+        benchmarked under different infrastructure assumptions.
+
+        Args:
+            profile: One of NETWORK_PROFILES (e.g. 'same_zone', 'cross_region')
+            base_latencies: Per-operation processing latencies to layer the
+                network RTT onto (e.g. DEFAULT_POSTGRES_LATENCIES). Defaults
+                to no processing latency.
+
+        Returns:
+            LatencyConfig with the profile applied. The 'in_process' profile
+            returns a disabled config (zero simulated latency).
+        """
+        if profile not in NETWORK_PROFILES:
+            raise ValueError(
+                f"Unknown profile: {profile!r}. "
+                f"Available profiles: {', '.join(NETWORK_PROFILES)}"
+            )
+
+        rtt = NETWORK_PROFILES[profile]
+        if profile == "in_process":
+            return cls(enabled=False)
+
+        base = base_latencies or {}
+        return cls(
+            enabled=True,
+            default_latency=0.001 + rtt,
+            operation_latencies={op: latency + rtt for op, latency in base.items()},
+        )
 
     def get_latency(self, operation: str) -> float:
         """
@@ -79,13 +135,18 @@ class MockDataStore(ABC):
     Abstract base class for mock data stores.
 
     All mock implementations should inherit from this class and implement
-    the required methods.
+    the required methods. Subclasses may set DEFAULT_LATENCIES to their
+    typical per-operation processing latencies, which are used when a
+    named infrastructure profile is requested.
     """
+
+    DEFAULT_LATENCIES: Dict[str, float] = {}
 
     def __init__(
         self,
         database: str = ":memory:",
         latency_config: Optional[LatencyConfig] = None,
+        profile: Optional[str] = None,
         **config,
     ):
         """
@@ -94,9 +155,14 @@ class MockDataStore(ABC):
         Args:
             database: SQLite database path (default: in-memory)
             latency_config: Configuration for latency simulation
+            profile: Named infrastructure profile (see NETWORK_PROFILES),
+                e.g. 'same_zone' or 'cross_region'. Ignored if
+                latency_config is given.
             **config: Additional configuration options
         """
         self.database = database
+        if latency_config is None and profile is not None:
+            latency_config = LatencyConfig.for_profile(profile, type(self).DEFAULT_LATENCIES)
         self.latency_config = latency_config or LatencyConfig()
         self.config = config
         self._connection: Optional[sqlite3.Connection] = None

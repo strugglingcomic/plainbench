@@ -4,9 +4,10 @@ Process monitoring for shell commands.
 Provides both snapshot and continuous monitoring modes using psutil.
 """
 
-import time
 import threading
-from typing import Optional, Dict, Any
+import time
+from typing import Any, Dict, Optional
+
 import psutil
 
 

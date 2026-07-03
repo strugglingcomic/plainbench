@@ -18,15 +18,24 @@ Example:
         # Business logic here
 """
 
+from plainbench.mocks.base import NETWORK_PROFILES, LatencyConfig
 from plainbench.mocks.decorators import (
     use_mock_datastore,
     use_mock_kafka,
     use_mock_postgres,
     use_mock_redis,
 )
-from plainbench.mocks.kafka import MockKafkaConsumer, MockKafkaProducer
-from plainbench.mocks.postgres import MockPostgresConnection, MockPostgresCursor
-from plainbench.mocks.redis import MockRedis
+from plainbench.mocks.kafka import (
+    DEFAULT_KAFKA_LATENCIES,
+    MockKafkaConsumer,
+    MockKafkaProducer,
+)
+from plainbench.mocks.postgres import (
+    DEFAULT_POSTGRES_LATENCIES,
+    MockPostgresConnection,
+    MockPostgresCursor,
+)
+from plainbench.mocks.redis import DEFAULT_REDIS_LATENCIES, MockRedis
 
 __all__ = [
     # Decorators
@@ -40,4 +49,10 @@ __all__ = [
     "MockKafkaProducer",
     "MockKafkaConsumer",
     "MockRedis",
+    # Latency simulation
+    "LatencyConfig",
+    "NETWORK_PROFILES",
+    "DEFAULT_POSTGRES_LATENCIES",
+    "DEFAULT_REDIS_LATENCIES",
+    "DEFAULT_KAFKA_LATENCIES",
 ]

@@ -4,11 +4,10 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from .models import (
     Benchmark,
-    BenchmarkComparison,
     BenchmarkRun,
     BenchmarkStatistics,
     Environment,
@@ -336,6 +335,24 @@ class BenchmarkDatabase:
 
         return measurements
 
+    def get_run_wall_times(self, run_id: int) -> Dict[str, List[float]]:
+        """Get wall-time samples for a run, grouped by benchmark name."""
+        rows = self.conn.execute(
+            """
+            SELECT b.name, m.wall_time
+            FROM measurements m
+            JOIN benchmarks b ON b.benchmark_id = m.benchmark_id
+            WHERE m.run_id = ? AND m.wall_time IS NOT NULL
+            ORDER BY b.name, m.iteration
+            """,
+            (run_id,),
+        ).fetchall()
+
+        wall_times: Dict[str, List[float]] = {}
+        for row in rows:
+            wall_times.setdefault(row["name"], []).append(row["wall_time"])
+        return wall_times
+
     # ============================================================================
     # Statistics Operations
     # ============================================================================
@@ -389,9 +406,7 @@ class BenchmarkDatabase:
         Returns:
             run_id: ID of created benchmark run
         """
-        # Get or create environment
-        # For now, create a simple environment record
-        # In real usage, this would detect system info
+        import os
         import platform
         import sys
 
@@ -400,8 +415,8 @@ class BenchmarkDatabase:
             python_version=sys.version,
             platform=platform.platform(),
             processor=platform.processor(),
-            cpu_count=platform.os.cpu_count() or 0,
-            memory_total=0,  # Would use psutil in real implementation
+            cpu_count=os.cpu_count() or 0,
+            memory_total=0,
             hostname=platform.node(),
             created_at=datetime.now(),
         )

@@ -1,436 +1,153 @@
-# PlainBench Quick Start Guide
+# PlainBench Quick Start
 
-**Get started with PlainBench in 5 minutes**
+Five minutes from install to comparing designs under infrastructure you
+haven't deployed.
 
----
-
-## Installation
+## Install
 
 ```bash
-# Install from source (until PyPI package is available)
-git clone https://github.com/yourusername/plainbench.git
+git clone https://github.com/strugglingcomic/plainbench.git
 cd plainbench
 pip install -e .
-
-# Or install with development dependencies
-pip install -e ".[dev]"
 ```
 
-### Requirements
+Requires Python 3.8+. Runtime dependencies are `psutil` and `click`.
 
-- Python 3.8 or higher
-- SQLite 3 (included with Python)
-- psutil (for process metrics)
+## 1. See the point
 
----
+```bash
+plainbench demo
+```
 
-## 5-Minute Tutorial
+Runs three designs (N+1 queries, batched query, warm cache) under three
+infrastructure assumptions and prints the winner matrix. Takes ~15 seconds,
+needs no infrastructure.
 
-### Step 1: Your First Benchmark
+## 2. Compare two implementations
 
-Create a file `my_benchmark.py`:
+```python
+import heapq, random
+from plainbench import compare
+
+data = [random.random() for _ in range(50_000)]
+
+result = compare({
+    "full_sort": lambda: sorted(data)[:10],
+    "heapq_nsmallest": lambda: heapq.nsmallest(10, data),
+})
+result.print()
+
+print(result.fastest)                       # "heapq_nsmallest"
+print(result.speedup("heapq_nsmallest"))    # e.g. 11.7
+print(result["full_sort"].mean)             # seconds, float
+```
+
+`compare()` interleaves candidates round-robin and pauses GC during timed
+calls. Options: `runs=10`, `warmup=2`, `args=(...)`, `kwargs={...}`.
+
+## 3. Add infrastructure assumptions
+
+Mock datastores speak the client APIs you already use, backed by SQLite,
+with per-operation latencies plus a network round trip for the chosen
+profile (`in_process`, `same_host`, `same_zone`, `same_region`,
+`cross_region`, `cross_continent`):
+
+```python
+from plainbench import compare_profiles
+from plainbench.mocks import MockRedis
+
+def read_one_by_one(profile):
+    redis = MockRedis(database="cache.db", profile=profile)
+    try:
+        return [redis.get(f"user:{i}") for i in range(20)]
+    finally:
+        redis.close()
+
+def read_pipelined(profile):
+    redis = MockRedis(database="cache.db", profile=profile)
+    try:
+        with redis.pipeline() as pipe:
+            for i in range(20):
+                pipe.get(f"user:{i}")
+            return pipe.execute()
+    finally:
+        redis.close()
+
+compare_profiles(
+    {"one_by_one": read_one_by_one, "pipelined": read_pipelined},
+    profiles=["in_process", "same_zone", "cross_region"],
+).print()
+```
+
+See [mock-datastores.md](mock-datastores.md) for the Postgres and Kafka
+mocks, decorator injection, and custom latencies.
+
+## 4. Track results over time
 
 ```python
 from plainbench import benchmark
 
-@benchmark()
-def fibonacci(n):
-    """Calculate fibonacci number."""
-    if n <= 1:
-        return n
-    return fibonacci(n-1) + fibonacci(n-2)
+@benchmark(name="sum_squares", runs=10, warmup=3)
+def sum_squares(n=100_000):
+    return sum(i * i for i in range(n))
 
-# Run it!
-result = fibonacci(20)
-print(f"Result: {result}")
+sum_squares()   # every measurement stored in ./benchmarks.db
 ```
 
-Run it:
+Inspect and compare from the CLI:
 
 ```bash
-python my_benchmark.py
+plainbench runs             # list stored runs
+plainbench show             # stats for the latest run
+plainbench show --run-id 3
+plainbench compare 1 2      # exit code 1 if a significant regression
 ```
 
-That's it! Benchmark data is automatically stored in `./benchmarks.db`.
+Set `PLAINBENCH_DATABASE` or pass `--database/-d` to use a different file.
 
-### Step 2: View Your Results
+Programmatic access:
 
 ```python
 from plainbench import BenchmarkDatabase
+from plainbench.analysis import compare_runs, detect_regressions
 
-db = BenchmarkDatabase("./benchmarks.db")
-db.initialize()
+with BenchmarkDatabase("./benchmarks.db") as db:
+    run = db.get_latest_run()
+    print(db.get_run_wall_times(run.run_id))
 
-# Get latest run
-latest = db.get_latest_run()
-print(f"Benchmark: {latest.benchmark_name}")
-
-# Get statistics
-stats = db.get_statistics(run_id=latest.run_id)
-for stat in stats:
-    if stat.metric_name == 'wall_time':
-        print(f"Mean time: {stat.mean:.6f}s")
-        print(f"Std dev: {stat.stddev:.6f}s")
-
-db.close()
+for c in compare_runs("./benchmarks.db", baseline_run_id=1, current_run_id=2):
+    print(c.benchmark_name, f"{c.change:+.1%}", c.is_regression())
 ```
 
-### Step 3: Customize Your Benchmark
-
-```python
-@benchmark(
-    name="my_custom_benchmark",
-    warmup=5,                    # 5 warmup iterations
-    runs=20,                     # 20 measurement runs
-    metrics=['wall_time', 'python_memory'],
-    isolation='moderate',        # CPU pinning + GC control
-    disable_gc=True             # Disable GC during measurement
-)
-def my_function(n):
-    return [i**2 for i in range(n)]
-
-result = my_function(10000)
-```
-
----
-
-## Common Use Cases
-
-### Compare Algorithms
-
-```python
-from plainbench import benchmark
-
-@benchmark(name="bubble_sort")
-def bubble_sort(data):
-    # Your implementation
-    return sorted_data
-
-@benchmark(name="quick_sort")
-def quick_sort(data):
-    # Your implementation
-    return sorted_data
-
-# Run both
-test_data = [5, 2, 8, 1, 9]
-bubble_sort(test_data)
-quick_sort(test_data)
-
-# Compare in database
-from plainbench.analysis import compare_runs
-comparison = compare_runs(
-    database="./benchmarks.db",
-    baseline_run_id=1,
-    current_run_id=2
-)
-```
-
-### Benchmark Shell Commands
+## 5. Benchmark shell commands
 
 ```python
 from plainbench.shell import benchmark_shell
 
-result = benchmark_shell(
-    command='find . -name "*.py"',
-    warmup=1,
-    runs=10
-)
-
-print(f"Mean time: {result.statistics.wall_time.mean:.3f}s")
-print(f"Std dev: {result.statistics.wall_time.stddev:.3f}s")
+result = benchmark_shell("gzip -9 < big.log > /dev/null", runs=5, warmup=1)
+print(result.mean_time, result.stddev_time, result.peak_memory)
 ```
 
-### Detect Performance Regressions
-
-```python
-from plainbench.analysis import detect_regressions
-
-# Compare current performance to baseline
-regressions = detect_regressions(
-    database="./benchmarks.db",
-    baseline_run_id=1,
-    current_run_id=2,
-    threshold=0.05  # 5% slowdown threshold
-)
-
-if regressions:
-    print("⚠️  Performance regressions detected!")
-    for reg in regressions:
-        print(f"  {reg.metric_name}: {reg.change_percent:+.2f}% slower")
-else:
-    print("✓ No regressions detected")
-```
-
----
-
-## Available Metrics
-
-PlainBench can collect multiple performance metrics:
-
-| Metric | Description | Availability |
-|--------|-------------|--------------|
-| `wall_time` | Total elapsed time | All platforms |
-| `cpu_time` | CPU time (excludes I/O wait) | All platforms |
-| `python_memory` | Python heap memory usage | All platforms |
-| `process_memory` | Total process memory (RSS) | All platforms |
-| `disk_io` | Disk I/O operations | Linux (full), others (limited) |
-| `cpu_usage` | CPU utilization percentage | All platforms |
-
-### Default Metrics
-
-By default, these metrics are collected:
-- `wall_time`
-- `cpu_time`
-- `python_memory`
-
-### Custom Metrics
+## Decorator options
 
 ```python
 @benchmark(
-    metrics=['wall_time', 'process_memory', 'disk_io']
-)
-def my_io_intensive_function():
-    # Your code here
-    pass
-```
-
----
-
-## Isolation Levels
-
-PlainBench provides three isolation levels for reproducible benchmarks:
-
-### Minimal (Default)
-- Basic garbage collection control
-- Fast, low overhead
-- Good for development
-
-```python
-@benchmark(isolation='minimal')
-def my_function():
-    pass
-```
-
-### Moderate (Recommended)
-- CPU pinning to specific cores
-- Process priority adjustment
-- PYTHONHASHSEED for reproducibility
-- Garbage collection control
-- Best balance for CI/CD
-
-```python
-@benchmark(isolation='moderate')
-def my_function():
-    pass
-```
-
-### Maximum
-- Subprocess execution
-- Environment cleanup
-- System state validation
-- Best reproducibility, higher overhead
-- Ideal for research and critical benchmarks
-
-```python
-@benchmark(isolation='maximum')
-def my_function():
-    pass
-```
-
----
-
-## Configuration
-
-### Decorator Parameters
-
-```python
-@benchmark(
-    name="custom_name",          # Benchmark name (default: function name)
-    warmup=3,                    # Warmup iterations (default: 3)
-    runs=10,                     # Measurement runs (default: 10)
-    metrics=['wall_time'],       # Metrics to collect
-    isolation='minimal',         # Isolation level
-    disable_gc=True,            # Disable GC during measurement
-    database="./my_bench.db"    # Database location
+    name="my_bench",            # default: function name
+    warmup=3,                   # untimed iterations
+    runs=10,                    # timed iterations
+    metrics=["wall_time", "cpu_time", "python_memory"],
+    isolation="minimal",        # or "moderate" (CPU pinning, GC), "maximum"
+    disable_gc=True,
+    store=True,                 # set False to skip the database
+    database=None,              # default: ./benchmarks.db
 )
 ```
 
-### Configuration File
+Available metrics: `wall_time`, `cpu_time`, `python_memory` (tracemalloc),
+`process_memory` (psutil), `disk_io` (platform-dependent).
 
-Create `plainbench.yaml`:
+## Next steps
 
-```yaml
-general:
-  default_isolation: moderate
-  default_metrics:
-    - wall_time
-    - cpu_time
-    - python_memory
-
-execution:
-  warmup_runs: 3
-  measurement_runs: 10
-  disable_gc: true
-
-storage:
-  database_path: "./benchmarks.db"
-```
-
----
-
-## Troubleshooting
-
-### Issue: Benchmark data not saved
-
-**Solution:** Make sure the database directory exists and is writable.
-
-```python
-import os
-os.makedirs("./benchmark_data", exist_ok=True)
-
-@benchmark(database="./benchmark_data/benchmarks.db")
-def my_function():
-    pass
-```
-
-### Issue: High variance in results
-
-**Solutions:**
-1. Increase warmup iterations
-2. Increase measurement runs
-3. Use higher isolation level
-4. Close other applications
-
-```python
-@benchmark(
-    warmup=10,          # More warmup
-    runs=50,            # More runs
-    isolation='moderate' # Higher isolation
-)
-def my_function():
-    pass
-```
-
-### Issue: Function too slow to benchmark
-
-**Solution:** Use fewer runs or smaller input data
-
-```python
-@benchmark(runs=5)  # Fewer runs
-def slow_function():
-    pass
-```
-
-### Issue: Memory metrics not available
-
-**Solution:** Install psutil
-
-```bash
-pip install psutil
-```
-
----
-
-## Next Steps
-
-### Learn More
-- [User Guide](user-guide.md) - Complete reference and advanced features
-- [Examples](../examples/README.md) - Working examples for common scenarios
-- [Architecture](architecture/technical-specification.md) - Technical details
-
-### Run Examples
-
-```bash
-# Basic decorator usage
-python examples/basic_decorator.py
-
-# Shell command benchmarking
-python examples/shell_commands.py
-
-# Algorithm comparison
-python examples/algorithm_comparison.py
-
-# Database queries
-python examples/database_queries.py
-```
-
-### Explore the Database
-
-```bash
-sqlite3 benchmarks.db
-
-# List all runs
-SELECT run_id, benchmark_name, timestamp FROM benchmark_runs;
-
-# View statistics
-SELECT * FROM benchmark_statistics WHERE run_id = 1;
-```
-
----
-
-## Quick Reference
-
-### Import Statements
-
-```python
-from plainbench import benchmark, BenchmarkDatabase, BenchmarkConfig
-from plainbench.shell import benchmark_shell
-from plainbench.analysis import compare_runs, detect_regressions
-```
-
-### Decorator Syntax
-
-```python
-@benchmark()                                    # Minimal
-@benchmark(runs=20)                            # Custom runs
-@benchmark(isolation='moderate')               # With isolation
-@benchmark(metrics=['wall_time', 'memory'])   # Custom metrics
-```
-
-### Database Operations
-
-```python
-db = BenchmarkDatabase("./benchmarks.db")
-db.initialize()
-
-latest = db.get_latest_run()                   # Latest run
-all_runs = db.get_all_runs()                   # All runs
-measurements = db.get_measurements(run_id=1)   # Measurements
-stats = db.get_statistics(run_id=1)            # Statistics
-history = db.get_benchmark_history("name")     # History
-
-db.close()
-```
-
-### Analysis Operations
-
-```python
-from plainbench.analysis import compare_runs, detect_regressions
-
-# Compare runs
-comparison = compare_runs(
-    database="./benchmarks.db",
-    baseline_run_id=1,
-    current_run_id=2
-)
-
-# Detect regressions
-regressions = detect_regressions(
-    database="./benchmarks.db",
-    baseline_run_id=1,
-    current_run_id=2,
-    threshold=0.05
-)
-```
-
----
-
-## Support
-
-- **Issues:** [GitHub Issues](https://github.com/yourusername/plainbench/issues)
-- **Documentation:** [Full Documentation](../README.md)
-- **Examples:** [examples/](../examples/)
-
----
-
-**Ready to benchmark? Start with `examples/basic_decorator.py`!**
+- [examples/](../examples/) — runnable examples
+- [mock-datastores.md](mock-datastores.md) — the mock layer in depth
+- [research.md](research.md) — where the latency numbers come from

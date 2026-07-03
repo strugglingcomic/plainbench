@@ -1,58 +1,72 @@
 """
-PlainBench: A Python benchmarking framework with SQLite storage.
+PlainBench: a simple, local-first benchmarking library for comparing
+algorithms and system designs under different infrastructure assumptions.
 
-PlainBench provides:
-- Python function benchmarking via decorators
-- Shell command benchmarking
-- Multiple metrics: timing, CPU, memory, I/O
-- SQLite-backed storage for historical analysis
-- Configurable isolation strategies
-- Statistical analysis and comparison
+Everything runs on your laptop. Datastores (Postgres, Redis, Kafka) are
+SQLite-backed mocks with realistic, configurable latency profiles, so you
+can see how competing designs behave on real infrastructure — without
+deploying any.
 
-Basic usage:
+Compare implementations:
 
-    from plainbench import benchmark
+    from plainbench import compare
 
-    @benchmark()
-    def my_function():
-        return sum(range(1000000))
+    result = compare({
+        "sorted": lambda: sorted(data),
+        "heapq": lambda: heapq.nsmallest(len(data), data),
+    })
+    result.print()
 
-For more information, see the documentation at:
-https://github.com/yourusername/plainbench
+Compare designs across infrastructure assumptions:
+
+    from plainbench import compare_profiles
+
+    compare_profiles(
+        {"n_plus_one": n_plus_one, "batched": batched},
+        profiles=["in_process", "same_zone", "cross_region"],
+    ).print()
+
+Track results over time with @benchmark, which stores measurements in a
+local SQLite database for later comparison and regression detection.
 """
 
 from plainbench.__version__ import __version__
+from plainbench.comparison import (
+    CandidateStats,
+    ComparisonResult,
+    ProfileComparison,
+    compare,
+    compare_profiles,
+)
 from plainbench.config.settings import BenchmarkConfig
 from plainbench.decorators.benchmark import benchmark
+from plainbench.mocks import (
+    NETWORK_PROFILES,
+    LatencyConfig,
+    use_mock_datastore,
+    use_mock_kafka,
+    use_mock_postgres,
+    use_mock_redis,
+)
 from plainbench.storage.database import BenchmarkDatabase
-
-# Import mock decorators (optional, requires mocks module)
-try:
-    from plainbench.mocks import (
-        use_mock_datastore,
-        use_mock_kafka,
-        use_mock_postgres,
-        use_mock_redis,
-    )
-
-    _MOCKS_AVAILABLE = True
-except ImportError:
-    _MOCKS_AVAILABLE = False
 
 __all__ = [
     "__version__",
+    # Comparison (the front door)
+    "compare",
+    "compare_profiles",
+    "CandidateStats",
+    "ComparisonResult",
+    "ProfileComparison",
+    # Tracked benchmarking
     "benchmark",
     "BenchmarkDatabase",
     "BenchmarkConfig",
+    # Mock datastores
+    "use_mock_postgres",
+    "use_mock_kafka",
+    "use_mock_redis",
+    "use_mock_datastore",
+    "LatencyConfig",
+    "NETWORK_PROFILES",
 ]
-
-# Add mock decorators to __all__ if available
-if _MOCKS_AVAILABLE:
-    __all__.extend(
-        [
-            "use_mock_postgres",
-            "use_mock_kafka",
-            "use_mock_redis",
-            "use_mock_datastore",
-        ]
-    )
